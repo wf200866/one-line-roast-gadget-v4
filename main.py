@@ -1,60 +1,67 @@
-"""A one-liner about fitness tracking gone sideways: the wrist tells you
-you crushed ten thousand steps, but most of those laps were paced while
-stuck on hold with a bank's phone tree."""
+"""One-line roast gadget.
+
+Angle: your watch throws confetti for a 10,000-step day, but most of those
+steps were you wearing a groove in the hallway while the bank kept you on hold.
+
+It writes exactly one line to /output/entry.txt. The write is atomic: stage a
+temp file in /output, then rename it into place. Nothing ever chmods the
+/output directory itself, because under the grader this process may be an
+unprivileged user that does not own that directory.
+"""
 
 import os
 import tempfile
 
-JOKE = "My smartwatch congratulated me on 10,000 steps; 9,000 of them were just me pacing the hall on hold with my bank."
+JOKE = (
+    "My smartwatch congratulated me on 10,000 steps; 9,000 of them were just "
+    "me pacing the hall on hold with my bank."
+)
 
-OUT_PATH = "/output"
-TARGET_NAME = "entry.txt"
-TARGET_PATH = os.path.join(OUT_PATH, TARGET_NAME)
-LO = 1
-HI = 200
+# Bounds for a sane one-liner.
+LOWER = 1
+UPPER = 200
 
 
 def validate(text):
-    """Guard the payload: non-blank and within the allowed span."""
-    if not text or text.strip() == "":
-        raise ValueError("empty roast rejected")
-    n = len(text)
-    if not (LO <= n <= HI):
-        raise ValueError("roast length %d outside %d..%d" % (n, LO, HI))
+    """Check the roast is present and within bounds; raise ValueError if not."""
+    if not isinstance(text, str):
+        raise ValueError("roast must be a string")
+    if not text.strip():
+        raise ValueError("roast must not be blank")
+    size = len(text)
+    if size < LOWER or size > UPPER:
+        raise ValueError("roast is %d chars; expected %d-%d" % (size, LOWER, UPPER))
     return text
 
 
-def ensure_output_dir():
-    """Make sure /output exists and can be entered; return the final path."""
-    os.makedirs(OUT_PATH, mode=0o755, exist_ok=True)
-    os.chmod(OUT_PATH, 0o755)
-    return TARGET_PATH
+def _stage_and_commit(dest_dir, dest_name, text):
+    """Stage text in dest_dir, then atomically rename to dest_name.
 
-
-def atomic_write(text):
-    """Write through a temp sibling inside /output, then rename over target."""
-    final_path = ensure_output_dir()
-    fd, tmp = tempfile.mkstemp(prefix="entry-", suffix=".tmp", dir=OUT_PATH)
+    chmod is applied only to newly created files, never to dest_dir.
+    """
+    handle, staged = tempfile.mkstemp(dir=dest_dir, prefix="entry-", suffix=".part")
     try:
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(text.encode("utf-8"))
-        os.chmod(tmp, 0o644)
-        os.replace(tmp, final_path)
-    finally:
-        if os.path.exists(tmp):
-            try:
-                os.unlink(tmp)
-            except FileNotFoundError:
-                pass
-    os.chmod(final_path, 0o644)
-    return final_path
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(text)
+        os.chmod(staged, 0o644)
+        final = os.path.join(dest_dir, dest_name)
+        os.replace(staged, final)
+    except BaseException:
+        try:
+            os.remove(staged)
+        except OSError:
+            pass
+        raise
+    os.chmod(final, 0o644)
+    return final
 
 
 def main():
     line = validate(JOKE)
-    where = atomic_write(line)
-    print("length=%d file=%s" % (len(line), where))
+    os.makedirs("/output", exist_ok=True)
+    _stage_and_commit("/output", "entry.txt", line)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
