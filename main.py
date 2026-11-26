@@ -1,46 +1,59 @@
-#!/usr/bin/env python3
-"""One-Line Roast V4 (smartwatch angle).
+"""A one-liner about fitness tracking gone sideways: the wrist tells you
+you crushed ten thousand steps, but most of those laps were paced while
+stuck on hold with a bank's phone tree."""
 
-Writes one funny line to /output/entry.txt. Standard library only.
-"""
 import os
 import tempfile
 
-# The sting is that the watch rewards the steps, not the reason for them.
-JOKE = (
-    "My smartwatch congratulated me on 10,000 steps; 9,000 of them were just "
-    "me pacing the hall on hold with my bank."
-)
+JOKE = "My smartwatch congratulated me on 10,000 steps; 9,000 of them were just me pacing the hall on hold with my bank."
 
-ENTRY_PATH = "/output/entry.txt"
+OUT_PATH = "/output"
+TARGET_NAME = "entry.txt"
+TARGET_PATH = os.path.join(OUT_PATH, TARGET_NAME)
+LO = 1
+HI = 200
 
 
-def validate(text: str) -> str:
-    if not text.strip():
-        raise ValueError("entry is blank")
-    if not (1 <= len(text) <= 200):
-        raise ValueError("entry must be 1-200 characters, got %d" % len(text))
+def validate(text):
+    """Guard the payload: non-blank and within the allowed span."""
+    if not text or text.strip() == "":
+        raise ValueError("empty roast rejected")
+    n = len(text)
+    if not (LO <= n <= HI):
+        raise ValueError("roast length %d outside %d..%d" % (n, LO, HI))
     return text
 
 
-def main() -> None:
-    line = validate(JOKE)
-    os.makedirs("/output", exist_ok=True)
-    # The collector reads /output as another user: keep the folder traversable.
-    os.chmod("/output", 0o755)
-    # Write to a temp file in /output, make it world-readable, then swap it in
-    # atomically so a reader never sees a partial entry.
-    fd, tmp = tempfile.mkstemp(dir="/output", prefix=".entry-", suffix=".tmp")
+def ensure_output_dir():
+    """Make sure /output exists and can be entered; return the final path."""
+    os.makedirs(OUT_PATH, mode=0o755, exist_ok=True)
+    os.chmod(OUT_PATH, 0o755)
+    return TARGET_PATH
+
+
+def atomic_write(text):
+    """Write through a temp sibling inside /output, then rename over target."""
+    final_path = ensure_output_dir()
+    fd, tmp = tempfile.mkstemp(prefix="entry-", suffix=".tmp", dir=OUT_PATH)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(line)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(text.encode("utf-8"))
         os.chmod(tmp, 0o644)
-        os.replace(tmp, ENTRY_PATH)
-    except BaseException:
+        os.replace(tmp, final_path)
+    finally:
         if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
-    os.chmod(ENTRY_PATH, 0o644)
+            try:
+                os.unlink(tmp)
+            except FileNotFoundError:
+                pass
+    os.chmod(final_path, 0o644)
+    return final_path
+
+
+def main():
+    line = validate(JOKE)
+    where = atomic_write(line)
+    print("length=%d file=%s" % (len(line), where))
 
 
 if __name__ == "__main__":
